@@ -1,5 +1,4 @@
 import os
-import json
 import asyncio
 from datetime import datetime
 
@@ -7,14 +6,10 @@ import requests
 import redis
 
 from telegram import Update
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    ContextTypes,
-)
+from telegram.ext import Application, CommandHandler, ContextTypes
 
 # =========================
-# ENV VARS
+# ENV
 # =========================
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ALLOWED_CHAT_ID = int(os.environ["ALLOWED_CHAT_ID"])
@@ -29,7 +24,8 @@ REDIS_SSL = os.environ.get("REDIS_SSL", "false").lower() in ("1", "true", "yes")
 # REDIS KEYS
 # =========================
 COOKIE_KEY = "tokoku:cookie"
-KNOWN_SET_KEY = "tokoku:known_ids"
+DELIVERED_SET_KEY = "tokoku:delivered_ids"
+
 LAST_STATUS_KEY = "tokoku:last_status"
 LAST_HTTP_KEY = "tokoku:last_http"
 LAST_CHECK_TS_KEY = "tokoku:last_check_ts"
@@ -37,6 +33,7 @@ COOKIE_EXPIRED_FLAG_KEY = "tokoku:cookie_expired_notified"
 
 # =========================
 # TOKOKU ENDPOINTS
+# (sesuaikan kalau di script aslimu beda)
 # =========================
 BASE_URL_ORDER_HISTORY = "https://tokoku-gateway.itemku.com/order-history"
 DELIVER_URL = "https://tokoku-gateway.itemku.com/order-history/deliver"
@@ -56,9 +53,6 @@ session.headers.update({
 })
 
 
-# =========================
-# HELPERS
-# =========================
 def now_str():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -101,9 +95,12 @@ def set_status(r, status, http):
 
 
 # =========================
-# TOKOKU LOGIC (BLOCKING)
+# TOKOKU (blocking)
 # =========================
-def fetch_orders():
+def fetch_orders_status_2():
+    """
+    Ambil pesanan 'perlu diproses' (status=2).
+    """
     params = {
         "status": 2,
         "page": 1,
@@ -112,56 +109,48 @@ def fetch_orders():
         "language_code": "ID",
     }
     try:
-        r = session.get(BASE_URL_ORDER_HISTORY, params=params, timeout=15)
+        resp = session.get(BASE_URL_ORDER_HISTORY, params=params, timeout=15)
     except Exception:
         return -1, []
 
-    if r.status_code != 200:
-        return r.status_code, []
+    if resp.status_code != 200:
+        return resp.status_code, []
 
     try:
-        data = r.json()["data"]["data"]
+        data = resp.json().get("data", {}).get("data", [])
         return 200, data if isinstance(data, list) else []
     except Exception:
-        return r.status_code, []
+        return resp.status_code, []
 
 
-def extract_oid(o):
-    return o.get("order_number") or o.get("id")
+def extract_order_number(o):
+    # tampilkan id yang enak dibaca di notif
+    return o.get("order_number") or o.get("id") or o.get("order_id")
 
 
 def extract_deliver_id(o):
+    # id yang dipakai endpoint deliver (sesuaikan kalau script aslimu beda)
     return o.get("order_id") or o.get("id")
 
 
 def deliver_order(o):
-    oid = extract_deliver_id(o)
-    if not oid:
-        return False, 0, "order_id not found"
+    deliver_id = extract_deliver_id(o)
+    if not deliver_id:
+        return False, 0, "deliver_id not found"
 
     try:
-        r = session.post(DELIVER_URL, json={"order_id": oid}, timeout=15)
+        resp = session.post(DELIVER_URL, json={"order_id": deliver_id}, timeout=15)
     except Exception as e:
         return False, -1, str(e)
 
-    if r.status_code != 200:
-        return False, r.status_code, r.text[:150]
+    if resp.status_code != 200:
+        return False, resp.status_code, resp.text[:150]
 
     return True, 200, "OK"
 
 
-def prime_known(r, orders):
-    if r.scard(KNOWN_SET_KEY) > 0:
-        return False
-    for o in orders:
-        oid = extract_oid(o)
-        if oid:
-            r.sadd(KNOWN_SET_KEY, str(oid))
-    return True
-
-
 # =========================
-# MONITOR (ASYNC)
+# MONITOR (async job)
 # =========================
 async def monitor_tick(context: ContextTypes.DEFAULT_TYPE):
     app = context.application
@@ -172,50 +161,46 @@ async def monitor_tick(context: ContextTypes.DEFAULT_TYPE):
 
     if not cookie:
         set_status(r, "NO_COOKIE", 0)
-        if r.get(COOKIE_EXPIRED_FLAG_KEY) != "1":
-            r.set(COOKIE_EXPIRED_FLAG_KEY, "1")
-            await app.bot.send_message(ALLOWED_CHAT_ID, "Cookie belum diset.")
         return
 
-    http, orders = await asyncio.to_thread(fetch_orders)
+    http, orders = await asyncio.to_thread(fetch_orders_status_2)
     set_status(r, "CHECK", http)
 
+    # cookie expired
     if http in (401, 403):
         set_status(r, "COOKIE_EXPIRED", http)
         if r.get(COOKIE_EXPIRED_FLAG_KEY) != "1":
             r.set(COOKIE_EXPIRED_FLAG_KEY, "1")
-            await app.bot.send_message(ALLOWED_CHAT_ID, "COOKIE EXPIRED")
+            await app.bot.send_message(ALLOWED_CHAT_ID, "COOKIE EXPIRED. Kirim /setcookie PIN <cookie_baru>")
         return
 
     if http != 200:
+        # error lain, diam saja (biar ga spam)
         return
 
     r.delete(COOKIE_EXPIRED_FLAG_KEY)
 
-    if prime_known(r, orders):
-        await app.bot.send_message(ALLOWED_CHAT_ID, f"Monitor aktif. Prime {len(orders)} order awal.")
+    if not orders:
+        # tidak ada pesanan perlu diproses
         return
 
-    baru = []
+    # proses semua yang status=2
     for o in orders:
-        oid = extract_oid(o)
-        if not oid:
+        oid_show = extract_order_number(o)
+        deliver_id = extract_deliver_id(o)
+
+        # anti-repeat: kalau sudah sukses deliver sebelumnya, skip
+        if deliver_id and r.sismember(DELIVERED_SET_KEY, str(deliver_id)):
             continue
-        if not r.sismember(KNOWN_SET_KEY, str(oid)):
-            r.sadd(KNOWN_SET_KEY, str(oid))
-            baru.append(o)
 
-    if baru:
-        ids = [str(extract_oid(o)) for o in baru]
-        await app.bot.send_message(ALLOWED_CHAT_ID, f"Pesanan baru: {', '.join(ids)}")
+        ok, code, _ = await asyncio.to_thread(deliver_order, o)
 
-        for o in baru:
-            oid = extract_oid(o)
-            ok, code, msg = await asyncio.to_thread(deliver_order, o)
-            if ok:
-                await app.bot.send_message(ALLOWED_CHAT_ID, f"DELIVER OK: {oid}")
-            else:
-                await app.bot.send_message(ALLOWED_CHAT_ID, f"DELIVER FAIL: {oid} ({code})")
+        if ok:
+            if deliver_id:
+                r.sadd(DELIVERED_SET_KEY, str(deliver_id))
+            await app.bot.send_message(ALLOWED_CHAT_ID, f"DELIVER OK: {oid_show}")
+        else:
+            await app.bot.send_message(ALLOWED_CHAT_ID, f"DELIVER FAIL: {oid_show} (HTTP {code})")
 
 
 # =========================
@@ -254,9 +239,9 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     run = "ON" if monitor_job else "OFF"
     await update.message.reply_text(
         f"Run: {run}\n"
-        f"Last: {r.get(LAST_CHECK_TS_KEY)}\n"
-        f"Status: {r.get(LAST_STATUS_KEY)}\n"
-        f"HTTP: {r.get(LAST_HTTP_KEY)}"
+        f"Last: {r.get(LAST_CHECK_TS_KEY) or '-'}\n"
+        f"Status: {r.get(LAST_STATUS_KEY) or 'UNKNOWN'}\n"
+        f"HTTP: {r.get(LAST_HTTP_KEY) or '-'}"
     )
 
 
