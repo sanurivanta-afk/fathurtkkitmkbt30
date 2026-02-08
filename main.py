@@ -1,7 +1,7 @@
 import os
 import asyncio
 from datetime import datetime
-
+import json
 import requests
 import redis
 
@@ -148,6 +148,25 @@ def deliver_order(o):
 
     return True, 200, "OK"
 
+def extract_required_info(o):
+    """
+    required_information di API kamu itu STRING JSON.
+    contoh: "{\"player_id\":\"177...\",\"zone_id\":\"2909\",\"username\":\"Trice.\"}"
+    """
+    raw = o.get("required_information")
+    if not raw:
+        return "-", "-", "-"
+
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else (raw or {})
+    except Exception:
+        return "-", "-", "-"
+
+    player_id = data.get("player_id") or "-"
+    zone_id = data.get("zone_id") or "-"
+    username = data.get("username") or "-"
+    return player_id, zone_id, username
+
 
 # =========================
 # MONITOR (async job)
@@ -198,9 +217,44 @@ async def monitor_tick(context: ContextTypes.DEFAULT_TYPE):
         if ok:
             if deliver_id:
                 r.sadd(DELIVERED_SET_KEY, str(deliver_id))
-            await app.bot.send_message(ALLOWED_CHAT_ID, f"DELIVER OK: {oid_show}")
+            product_name = o.get("product_name") or "-"
+            player_id, zone_id, username = extract_required_info(o)
+            
+            msg = (
+                "✅ *DELIVER OK*\n"
+                f"Order: `{oid_show}`\n"
+                f"Product: *{product_name}*\n"
+                f"Username: `{username}`\n"
+                f"Player ID: `{player_id}`\n"
+                f"Zone ID: `{zone_id}`"
+            )
+            
+            await app.bot.send_message(
+                ALLOWED_CHAT_ID,
+                msg,
+                parse_mode="Markdown"
+            )
+
         else:
-            await app.bot.send_message(ALLOWED_CHAT_ID, f"DELIVER FAIL: {oid_show} (HTTP {code})")
+            product_name = o.get("product_name") or "-"
+            player_id, zone_id, username = extract_required_info(o)
+            
+            msg = (
+                "❌ *DELIVER FAIL*\n"
+                f"Order: `{oid_show}`\n"
+                f"Product: *{product_name}*\n"
+                f"Username: `{username}`\n"
+                f"Player ID: `{player_id}`\n"
+                f"Zone ID: `{zone_id}`\n"
+                f"HTTP: `{code}`"
+            )
+            
+            await app.bot.send_message(
+                ALLOWED_CHAT_ID,
+                msg,
+                parse_mode="Markdown"
+            )
+
 
 
 # =========================
@@ -279,3 +333,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
