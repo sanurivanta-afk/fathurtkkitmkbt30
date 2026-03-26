@@ -36,7 +36,18 @@ def eksekusi_order(user_id, zone_id, pilihan):
         return "❌ Pilihan produk tidak valid."
 
     produk = katalog[pilihan]
-    headers = {"Content-Type": "application/json;charset=UTF-8", "User-Agent": "Mozilla/5.0", "X-Lang": "id"}
+    
+    # --- 1. UPGRADE HEADERS ---
+    # Kita cloning 100% sesuai dengan screenshot Request Headers aslimu
+    headers = {
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "application/json;charset=UTF-8",
+        "Origin": "https://www.mobapay.com",
+        "Referer": "https://www.mobapay.com/",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+        "X-Lang": "id",
+        "X-Mm-Version": "2.13.16"
+    }
     
     payload_order = {
         "app_id": 100000, "game_user_key": user_id, "game_server_key": zone_id,
@@ -50,7 +61,7 @@ def eksekusi_order(user_id, zone_id, pilihan):
         payload_order["shelf_index"] = produk["shelf_index"]
 
     try:
-        # Request Order
+        # Request Order (Tahap 1)
         res_order = requests.post("https://api.mobapay.com/pay/order", json=payload_order, headers=headers).json()
         if res_order.get("code") != 0:
             return f"❌ Gagal buat order.\nResponse: {res_order}"
@@ -58,9 +69,11 @@ def eksekusi_order(user_id, zone_id, pilihan):
         order_id = res_order["data"]["order_id"]
         username = res_order["data"]["user_name"]
 
-        # Request Payment URL
+        # --- 2. FORCE STRING PADA ORDER ID ---
+        # Request Payment URL (Tahap 2)
         payload_payment = {
-            "order_id": order_id, "terminal_type": "WEB",
+            "order_id": str(order_id), # Memaksa order_id menjadi teks/string
+            "terminal_type": "WEB",
             "return_url": f"https://www.mobapay.com/order?appid=100000&order={order_id}&r=ID",
             "merchant_return_url": "https://www.mobapay.com/mlbb/?r=ID"
         }
@@ -80,6 +93,6 @@ def eksekusi_order(user_id, zone_id, pilihan):
                     f"🔗 *Link Bayar:* [Klik Disini]({payment_url})\n\n"
                     f"_(Tersimpan di riwayat_pembayaran.txt)_")
         else:
-            return f"❌ Gagal mendapatkan URL pembayaran.\nAlasan dari Server: `{res_pay}`"
+            return f"❌ Gagal mendapatkan URL pembayaran.\nInfo Server: `{res_pay}`"
     except Exception as e:
-        return f"⚠️ Error: {e}"
+        return f"⚠️ Error sistem: {e}"
