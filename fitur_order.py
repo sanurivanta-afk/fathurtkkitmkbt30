@@ -24,6 +24,17 @@ katalog = {
     "20": {"nama": "Weekly Diamond Pass", "goods_id": 120991, "amount_pay": 2700000, "price_pay": 2700000, "pay_channel_sub_id": 123449}
 }
 
+# --- HEADER GLOBAL SEPERTI IDEMU ---
+HEADERS_MOBAPAY = {
+    "Accept": "application/json, text/plain, */*",
+    "Content-Type": "application/json;charset=UTF-8",
+    "Origin": "https://www.mobapay.com",
+    "Referer": "https://www.mobapay.com/",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0",
+    "X-Lang": "id",
+    "X-Mm-Version": "2.13.16"
+}
+
 def get_katalog_text():
     teks = "*--- KATALOG MOBAPAY ---*\n"
     for no, prod in katalog.items():
@@ -37,52 +48,52 @@ def eksekusi_order(user_id, zone_id, pilihan):
 
     produk = katalog[pilihan]
     
-    # --- 1. UPGRADE HEADERS ---
-    # Kita cloning 100% sesuai dengan screenshot Request Headers aslimu
-    headers = {
-        "Accept": "application/json, text/plain, */*",
-        "Content-Type": "application/json;charset=UTF-8",
-        "Origin": "https://www.mobapay.com",
-        "Referer": "https://www.mobapay.com/",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
-        "X-Lang": "id",
-        "X-Mm-Version": "2.13.16"
-    }
-    
+    # Payload Tahap 1 persis seperti topup.py
     payload_order = {
-        "app_id": 100000, "game_user_key": user_id, "game_server_key": zone_id,
-        "email": "zchange19@gmail.com", "shop_id": 1001, "currency_code": "IDR",
-        "country_code": "ID", "num": 1, "lang": "id", "terminal_type": "WEB",
+        "app_id": 100000, 
+        "game_user_key": user_id, 
+        "game_server_key": zone_id,
+        "email": "zchange19@gmail.com", 
+        "shop_id": 1001, 
+        "currency_code": "IDR",
+        "country_code": "ID", 
+        "num": 1, 
+        "lang": "id", 
+        "network": "", # Parameter dikembalikan
+        "net": "",     # Parameter dikembalikan
+        "terminal_type": "WEB",
         "merchant_return_url": "https://www.mobapay.com/mlbb/?r=ID",
-        "goods_id": produk["goods_id"], "amount_pay": produk["amount_pay"],
-        "price_pay": produk["price_pay"], "pay_channel_sub_id": produk["pay_channel_sub_id"]
+        "goods_id": produk["goods_id"], 
+        "amount_pay": produk["amount_pay"],
+        "price_pay": produk["price_pay"], 
+        "pay_channel_sub_id": produk["pay_channel_sub_id"]
     }
     if "shelf_index" in produk:
         payload_order["shelf_index"] = produk["shelf_index"]
 
     try:
-        # Request Order (Tahap 1)
-        res_order = requests.post("https://api.mobapay.com/pay/order", json=payload_order, headers=headers).json()
+        res_order = requests.post("https://api.mobapay.com/pay/order", json=payload_order, headers=HEADERS_MOBAPAY).json()
         if res_order.get("code") != 0:
-            return f"❌ Gagal buat order.\nResponse: {res_order}"
+            return f"❌ Gagal buat order.\nResponse: `{res_order}`"
 
         order_id = res_order["data"]["order_id"]
         username = res_order["data"]["user_name"]
 
-        # --- 2. FORCE STRING PADA ORDER ID ---
-        # Request Payment URL (Tahap 2)
+        # Payload Tahap 2 persis seperti topup.py (tanpa str, parameter kembali)
         payload_payment = {
-            "order_id": str(order_id), # Memaksa order_id menjadi teks/string
-            "terminal_type": "WEB",
+            "order_id": order_id, 
             "return_url": f"https://www.mobapay.com/order?appid=100000&order={order_id}&r=ID",
-            "merchant_return_url": "https://www.mobapay.com/mlbb/?r=ID"
+            "merchant_return_url": "https://www.mobapay.com/mlbb/?r=ID",
+            "network": "", # Parameter dikembalikan
+            "net": "",     # Parameter dikembalikan
+            "terminal_type": "WEB"
         }
-        res_pay = requests.post("https://api.mobapay.com/pay/order/payment", json=payload_payment, headers=headers).json()
+        res_pay = requests.post("https://api.mobapay.com/pay/order/payment", json=payload_payment, headers=HEADERS_MOBAPAY).json()
         
         if res_pay.get("code") == 0:
             payment_url = res_pay["data"]["payment_url"]
             waktu = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            riwayat = f"[{waktu}] Order: {order_id} | {username} | {produk['nama']} | URL: {payment_url}\n"
+            riwayat = f"[{waktu}] Order ID: {order_id} | Akun: {username} | Item: {produk['nama']} | URL: {payment_url}\n"
             
             with open("riwayat_pembayaran.txt", "a") as f:
                 f.write(riwayat)
