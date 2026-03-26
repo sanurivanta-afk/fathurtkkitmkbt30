@@ -11,7 +11,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 # =========================
 # ENV
 # =========================
-BOT_TOKEN = os.environ["BOT_TOKEN"]
+BOT_TOKEN = os.environ.get("TOKEN_BOT_NOTIF")
 ALLOWED_CHAT_ID = int(os.environ["ALLOWED_CHAT_ID"])
 BOT_PIN = os.environ["BOT_PIN"]
 
