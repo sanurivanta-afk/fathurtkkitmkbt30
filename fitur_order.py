@@ -24,7 +24,6 @@ katalog = {
     "20": {"nama": "Weekly Diamond Pass", "goods_id": 120991, "amount_pay": 2700000, "price_pay": 2700000, "pay_channel_sub_id": 123449}
 }
 
-# --- HEADER GLOBAL SEPERTI IDEMU ---
 HEADERS_MOBAPAY = {
     "Accept": "application/json, text/plain, */*",
     "Content-Type": "application/json;charset=UTF-8",
@@ -48,7 +47,6 @@ def eksekusi_order(user_id, zone_id, pilihan):
 
     produk = katalog[pilihan]
     
-    # Payload Tahap 1 persis seperti topup.py
     payload_order = {
         "app_id": 100000, 
         "game_user_key": user_id, 
@@ -59,8 +57,8 @@ def eksekusi_order(user_id, zone_id, pilihan):
         "country_code": "ID", 
         "num": 1, 
         "lang": "id", 
-        "network": "", # Parameter dikembalikan
-        "net": "",     # Parameter dikembalikan
+        "network": "", 
+        "net": "",     
         "terminal_type": "WEB",
         "merchant_return_url": "https://www.mobapay.com/mlbb/?r=ID",
         "goods_id": produk["goods_id"], 
@@ -74,18 +72,21 @@ def eksekusi_order(user_id, zone_id, pilihan):
     try:
         res_order = requests.post("https://api.mobapay.com/pay/order", json=payload_order, headers=HEADERS_MOBAPAY).json()
         if res_order.get("code") != 0:
-            return f"❌ Gagal buat order.\nResponse: `{res_order}`"
+            # Format aman tanpa markdown
+            return f"❌ Gagal buat order.\nResponse: {res_order}"
 
         order_id = res_order["data"]["order_id"]
         username = res_order["data"]["user_name"]
+        
+        # Amanin username (kalau ada pembeli pakai nama aneh-aneh)
+        username_aman = str(username).replace("_", "\\_").replace("*", "\\*")
 
-        # Payload Tahap 2 persis seperti topup.py (tanpa str, parameter kembali)
         payload_payment = {
             "order_id": order_id, 
             "return_url": f"https://www.mobapay.com/order?appid=100000&order={order_id}&r=ID",
             "merchant_return_url": "https://www.mobapay.com/mlbb/?r=ID",
-            "network": "", # Parameter dikembalikan
-            "net": "",     # Parameter dikembalikan
+            "network": "", 
+            "net": "",     
             "terminal_type": "WEB"
         }
         res_pay = requests.post("https://api.mobapay.com/pay/order/payment", json=payload_payment, headers=HEADERS_MOBAPAY).json()
@@ -98,12 +99,13 @@ def eksekusi_order(user_id, zone_id, pilihan):
             with open("riwayat_pembayaran.txt", "a") as f:
                 f.write(riwayat)
                 
+            # Teks balasan ke bot dibikin se-aman mungkin dari error Parse Entity
             return (f"✅ *ORDER BERHASIL!*\n\n"
-                    f"👤 Akun: `{username}`\n"
-                    f"🛍️ Item: `{produk['nama']}`\n"
-                    f"🔗 *Link Bayar:* [Klik Disini]({payment_url})\n\n"
-                    f"_(Tersimpan di riwayat_pembayaran.txt)_")
+                    f"👤 Akun: {username_aman}\n"
+                    f"🛍️ Item: {produk['nama']}\n\n"
+                    f"🔗 *Link Bayar:*\n{payment_url}\n\n"
+                    f"📝 Data tersimpan di riwayat pembukuan.")
         else:
-            return f"❌ Gagal mendapatkan URL pembayaran.\nInfo Server: `{res_pay}`"
+            return f"❌ Gagal mendapatkan URL pembayaran.\nInfo Server: {res_pay}"
     except Exception as e:
         return f"⚠️ Error sistem: {e}"
