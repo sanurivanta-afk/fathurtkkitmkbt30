@@ -80,6 +80,6 @@ def eksekusi_order(user_id, zone_id, pilihan):
                     f"🔗 *Link Bayar:* [Klik Disini]({payment_url})\n\n"
                     f"_(Tersimpan di riwayat_pembayaran.txt)_")
         else:
-            return "❌ Gagal mendapatkan URL pembayaran."
+            return f"❌ Gagal mendapatkan URL pembayaran.\nAlasan dari Server: `{res_pay}`"
     except Exception as e:
         return f"⚠️ Error: {e}"
