@@ -5,8 +5,8 @@ import json
 import requests
 import redis
 
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 
 # =========================
 # ENV
@@ -316,20 +316,108 @@ async def cmd_setcookie(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_cookie(r, parts[2])
     await update.message.reply_text("Cookie updated.")
 
+# =========================
+# DASHBOARD & CALLBACKS
+# =========================
+async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update):
+        return
 
+    # Membuat tombol-tombol seperti di Screenshot 1
+    keyboard = [
+        [InlineKeyboardButton("▶️ Start Monitor", callback_data="btn_start")],
+        [InlineKeyboardButton("⏸️ Stop Monitor", callback_data="btn_stop")],
+        [InlineKeyboardButton("ℹ️ Cek Status", callback_data="btn_status")],
+        [InlineKeyboardButton("🍪 Cara Set Cookie", callback_data="btn_cookie")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        "🤖 *DASHBOARD MONITOR TOKOKU*\nPilih menu di bawah ini:",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Menangani aksi saat tombol di dashboard ditekan"""
+    query = update.callback_query
+    
+    # Keamanan: pastikan yang klik tombol adalah chat yang diizinkan
+    if not is_allowed(update):
+        await query.answer("Akses ditolak.", show_alert=True)
+        return
+
+    await query.answer() # Hilangkan loading di tombol
+    data = query.data
+    global monitor_job
+
+    if data == "btn_start":
+        if monitor_job:
+            await query.message.reply_text("Monitor sudah ON.")
+        else:
+            monitor_job = context.job_queue.run_repeating(monitor_tick, interval=10, first=0)
+            await query.message.reply_text("Monitor ON.")
+            
+    elif data == "btn_stop":
+        if monitor_job:
+            monitor_job.schedule_removal()
+            monitor_job = None
+            await query.message.reply_text("Monitor OFF.")
+        else:
+            await query.message.reply_text("Monitor memang sedang OFF.")
+            
+    elif data == "btn_status":
+        r = redis_client()
+        run = "ON" if monitor_job else "OFF"
+        await query.message.reply_text(
+            f"Run: {run}\n"
+            f"Last: {r.get(LAST_CHECK_TS_KEY) or '-'}\n"
+            f"Status: {r.get(LAST_STATUS_KEY) or 'UNKNOWN'}\n"
+            f"HTTP: {r.get(LAST_HTTP_KEY) or '-'}"
+        )
+        
+    elif data == "btn_cookie":
+        await query.message.reply_text(
+            "Untuk update cookie, ketik manual format berikut di chat:\n\n"
+            "`/setcookie PIN COOKIE_BARU_KAMU`", 
+            parse_mode="Markdown"
+        )
+
+# =========================
+# SETUP COMMAND MENU (Screenshot 2)
+# =========================
+async def post_init(application: Application):
+    """Membuat auto-complete command menu di pojok kiri bawah Telegram"""
+    commands = [
+        BotCommand("menu", "Buka Dashboard Menu Bot"),
+        BotCommand("start_monitor", "Nyalakan monitor pesanan (cek tiap 10 detik)"),
+        BotCommand("stop_monitor", "Matikan monitor"),
+        BotCommand("status", "Cek status bot (run, last check, HTTP)"),
+        BotCommand("setcookie", "Update cookie Tokoku (format: /setcookie PIN COOKIE)")
+    ]
+    await application.bot.set_my_commands(commands)
+    
+# =========================
+# MAIN
+# =========================
 # =========================
 # MAIN
 # =========================
 def main():
-    app = Application.builder().token(BOT_TOKEN).build()
+    # Tambahkan post_init=post_init di sini
+    app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
+    # Handler Command Lama
     app.add_handler(CommandHandler("start_monitor", cmd_start_monitor))
     app.add_handler(CommandHandler("stop_monitor", cmd_stop_monitor))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("setcookie", cmd_setcookie))
+    
+    # Handler Menu & Tombol Baru
+    app.add_handler(CommandHandler("menu", cmd_menu))
+    app.add_handler(CallbackQueryHandler(button_handler))
 
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
