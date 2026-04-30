@@ -25,18 +25,22 @@ def menu_utama(message):
 @bot.callback_query_handler(func=lambda call: True)
 def urus_tombol(call):
     chat_id = call.message.chat.id
-    if call.data == "menu_region":
-        msg = bot.send_message(chat_id, "🌍 *CEK REGION*\nKirimkan ID dan Server\nContoh: `152701842,2764`")
-        bot.register_next_step_handler(msg, proses_region)
-    elif call.data == "menu_promo":
+    
+    # 1. CEK PROMO
+    if call.data == "menu_promo":
         msg = bot.send_message(chat_id, "🎁 *CEK PROMO*\nKirimkan ID dan Server\nContoh: `152701842,2764`")
         bot.register_next_step_handler(msg, proses_promo)
-    elif call.data == "menu_order":
-        msg = bot.send_message(chat_id, "🛒 *BUAT ORDER*\nKirimkan ID dan Server Pembeli\nContoh: `152701842,2764`")
+        
+    # 2. ORDER MOBAPAY (Bug Diperbaiki Di Sini)
+    elif call.data == "menu_order_moba": 
+        msg = bot.send_message(chat_id, "🛒 *BUAT ORDER MOBAPAY*\nKirimkan ID dan Server Pembeli\nContoh: `152701842,2764`")
         bot.register_next_step_handler(msg, proses_order_step1)
+        
+    # 3. ORDER GOPAY
     elif call.data == "menu_order_gopay":
         msg = bot.send_message(chat_id, "🟢 *ORDER GOPAY*\nKirimkan ID dan Server Pembeli\nContoh: `152701842,2764`")
         bot.register_next_step_handler(msg, proses_gopay_step1)
+
 
 # --- FUNGSI LANJUTAN (NEXT STEP HANDLERS) ---
 def parse_id(text):
@@ -55,6 +59,7 @@ def proses_promo(message):
     hasil = cek_promo(uid, zid)
     bot.send_message(message.chat.id, hasil)
 
+# ----------------- ALUR MOBAPAY -----------------
 def proses_order_step1(message):
     uid, zid = parse_id(message.text)
     if not uid:
@@ -73,7 +78,8 @@ def proses_order_step2(message, uid, zid):
     bot.send_message(message.chat.id, "⏳ Memproses pembayaran...")
     hasil = eksekusi_order(uid, zid, pilihan)
     bot.send_message(message.chat.id, hasil, disable_web_page_preview=True)
-    
+
+# ----------------- ALUR GOPAY -----------------
 def proses_gopay_step1(message):
     uid, zid = parse_id(message.text)
     if not uid:
@@ -99,6 +105,7 @@ def proses_gopay_step2(message, uid, zid):
     bot.send_message(message.chat.id, "⏳ Memproses pembuatan link bayar GoPay...")
     hasil = eksekusi_order_gopay(uid, zid, pilihan)
     bot.send_message(message.chat.id, hasil, disable_web_page_preview=True)
+
 
 # Jalankan Bot
 print("Bot sedang berjalan...")
