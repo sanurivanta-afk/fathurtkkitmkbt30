@@ -214,6 +214,10 @@ async def monitor_tick(context: ContextTypes.DEFAULT_TYPE):
 
         ok, code, _ = await asyncio.to_thread(deliver_order, o)
 
+        # === PASTIKAN BARIS INI ADA DI SINI ===
+        # Kita ambil langsung dari object 'o' karena dia sejajar dengan product_name
+        quantity = o.get("quantity", 1)
+
         if ok:
             if deliver_id:
                 r.sadd(DELIVERED_SET_KEY, str(deliver_id))
