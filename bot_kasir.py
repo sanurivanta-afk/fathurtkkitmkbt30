@@ -1,6 +1,6 @@
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from fitur_gopay import cek_akun_gopay, get_katalog_gopay_text, eksekusi_order_gopay
+from fitur_mobapay_my import cek_region_akun, get_katalog_my_text, eksekusi_order_my
 import os
 
 # Import fungsi dari file modular kita
@@ -17,7 +17,7 @@ def menu_utama(message):
     markup.row_width = 1
     markup.add(
         InlineKeyboardButton("🛒 Order via Mobapay", callback_data="menu_order_moba"),
-        InlineKeyboardButton("🟢 Order via GoPay (Cek Region)", callback_data="menu_order_gopay"),
+        InlineKeyboardButton("🇲🇾 Order Mobapay (Region MY)", callback_data="menu_order_my"),
         InlineKeyboardButton("🎁 Cek Promo First Recharge", callback_data="menu_promo")
     )
     bot.send_message(message.chat.id, "🤖 *DASHBOARD KASIR*\nPilih menu di bawah ini:", reply_markup=markup)
@@ -36,10 +36,10 @@ def urus_tombol(call):
         msg = bot.send_message(chat_id, "🛒 *BUAT ORDER MOBAPAY*\nKirimkan ID dan Server Pembeli\nContoh: `152701842,2764`")
         bot.register_next_step_handler(msg, proses_order_step1)
         
-    # 3. ORDER GOPAY
-    elif call.data == "menu_order_gopay":
-        msg = bot.send_message(chat_id, "🟢 *ORDER GOPAY*\nKirimkan ID dan Server Pembeli\nContoh: `152701842,2764`")
-        bot.register_next_step_handler(msg, proses_gopay_step1)
+    # 3. ORDER MOBAPAY REGION MY
+    elif call.data == "menu_order_my":
+        msg = bot.send_message(chat_id, "🇲🇾 *ORDER REGION MY*\nKirimkan ID dan Server Pembeli\nContoh: `152701842,2764`")
+        bot.register_next_step_handler(msg, proses_my_step1)
 
 
 # --- FUNGSI LANJUTAN (NEXT STEP HANDLERS) ---
@@ -79,31 +79,33 @@ def proses_order_step2(message, uid, zid):
     hasil = eksekusi_order(uid, zid, pilihan)
     bot.send_message(message.chat.id, hasil, disable_web_page_preview=True)
 
-# ----------------- ALUR GOPAY -----------------
-def proses_gopay_step1(message):
+# ----------------- ALUR MOBAPAY (REGION MY) -----------------
+def proses_my_step1(message):
     uid, zid = parse_id(message.text)
     if not uid:
         bot.send_message(message.chat.id, "❌ Format salah! Harus pakai koma.")
         return
     
-    bot.send_message(message.chat.id, "⏳ Mengecek Info Akun & Region ke server GoPay...")
-    sukses, teks_akun = cek_akun_gopay(uid, zid)
+    bot.send_message(message.chat.id, "⏳ Memvalidasi Region ke server...")
     
-    # Jika akun valid, langsung munculkan Katalog GoPay!
+    # Menangkap 3 output dari fungsi cek_region_akun
+    sukses, username, teks_akun = cek_region_akun(uid, zid)
+    
     if sukses:
-        katalog_teks = get_katalog_gopay_text()
-        pesan = f"{teks_akun}\n\n{katalog_teks}\n👉 *Ketik nomor produk yang ingin dibeli (1-19):*"
+        katalog_teks = get_katalog_my_text()
+        pesan = f"{teks_akun}\n\n{katalog_teks}\n👉 *Ketik nomor produk yang ingin dibeli:*"
         msg = bot.send_message(message.chat.id, pesan)
-        # Bawa data UID dan ZID ke step selanjutnya
-        bot.register_next_step_handler(msg, proses_gopay_step2, uid, zid)
+        
+        # Bawa uid, zid, DAN username ke step eksekusi
+        bot.register_next_step_handler(msg, proses_my_step2, uid, zid, username)
     else:
-        # Jika akun gagal ditemukan, jangan lanjut ke katalog
+        # Ditolak karena bukan MY atau ID salah
         bot.send_message(message.chat.id, teks_akun)
 
-def proses_gopay_step2(message, uid, zid):
+def proses_my_step2(message, uid, zid, username):
     pilihan = message.text.strip()
-    bot.send_message(message.chat.id, "⏳ Memproses pembuatan link bayar GoPay...")
-    hasil = eksekusi_order_gopay(uid, zid, pilihan)
+    bot.send_message(message.chat.id, "⏳ Memproses URL pembayaran UniPin...")
+    hasil = eksekusi_order_my(uid, zid, username, pilihan)
     bot.send_message(message.chat.id, hasil, disable_web_page_preview=True)
 
 
